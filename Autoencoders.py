@@ -334,15 +334,17 @@ class ScaledIsometricAutoencoder(IsometricAutoencoder):
 
 
 class ConformalAutoencoder(Autoencoder):
-    def __init__(self, encoder, decoder, lambda_conf=0.1):
+    def __init__(self, encoder, decoder, lambda_conf=0.1, lambda_reg=0.0):
         super(ConformalAutoencoder, self).__init__(encoder, decoder)
         self.name = "ConformalAutoencoder"
         self.lambda_conf = lambda_conf
+        self.lambda_reg = lambda_reg
 
         self.conformality_loss = conformality_loss
+        self.regularization_loss = regularization1
 
-        self.metrics_list = {"reconstruction_loss": [], "conformal_loss": []}
-        self.val_metrics_list = {"reconstruction_loss": [], "conformal_loss": []}
+        self.metrics_list = {"reconstruction_loss": [], "conformal_loss": [], "regularization_loss": []}
+        self.val_metrics_list = {"reconstruction_loss": [], "conformal_loss": [], "regularization_loss": []}
 
     def get_metrics(self, x, val=False):
         # Compute all relevant metrics
@@ -350,12 +352,13 @@ class ConformalAutoencoder(Autoencoder):
         x_reconstructed = self.decode(z)
         reconstruction_loss = nn.MSELoss()(x_reconstructed, x)
         conformal_loss = self.conformality_loss(self.decoder, z)
-        return [reconstruction_loss, conformal_loss]
+        regularization_loss = self.regularization_loss(self.decoder, z)
+        return [reconstruction_loss, conformal_loss, regularization_loss]
     
     def get_loss(self, metrics):
         # Combine metrics to compute loss
-        reconstruction_loss, conformal_loss = metrics
-        return reconstruction_loss + self.lambda_conf * conformal_loss
+        reconstruction_loss, conformal_loss, regularization_loss = metrics
+        return reconstruction_loss + self.lambda_conf * conformal_loss + self.lambda_reg * regularization_loss
     
     def get_batch_loss(self, loss_list):
         # Compute the average loss for the batch
@@ -366,24 +369,27 @@ class ConformalAutoencoder(Autoencoder):
         # Compute the average metrics for the batch
         batch_reconstruction_loss = torch.mean(torch.tensor(metrics)[:, 0]).item()
         batch_conformal_loss = torch.mean(torch.tensor(metrics)[:, 1]).item()
-        return [batch_reconstruction_loss, batch_conformal_loss]
+        batch_regularization_loss = torch.mean(torch.tensor(metrics)[:, 2]).item()
+        return [batch_reconstruction_loss, batch_conformal_loss, batch_regularization_loss]
     
     def log_loss_and_metrics(self, batch_loss, batch_metrics, epoch, epochs, val=False):
         # Log the loss and metrics for monitoring
-        reconstruction_loss, conformal_loss = batch_metrics
+        reconstruction_loss, conformal_loss, regularization_loss = batch_metrics
         if val:
-            print(f'Epoch [{epoch + 1}/{epochs}], Validation Loss: {batch_loss.item():.8f}, Reconstruction Loss: {reconstruction_loss:.8f}, Conformal Loss: {conformal_loss:.8f}')
+            print(f'Epoch [{epoch + 1}/{epochs}], Validation Loss: {batch_loss.item():.8f}, Reconstruction Loss: {reconstruction_loss:.8f}, Conformal Loss: {conformal_loss:.8f}, Regularization Loss: {regularization_loss:.8f}')
         else:
-            print(f'Epoch [{epoch + 1}/{epochs}], Loss: {batch_loss.item():.8f}, Reconstruction Loss: {reconstruction_loss:.8f}, Conformal Loss: {conformal_loss:.8f}')
+            print(f'Epoch [{epoch + 1}/{epochs}], Loss: {batch_loss.item():.8f}, Reconstruction Loss: {reconstruction_loss:.8f}, Conformal Loss: {conformal_loss:.8f}, Regularization Loss: {regularization_loss:.8f}')
 
     def track_loss_and_metrics(self, batch_loss, batch_metrics, val=False):
         # Track and save the loss and metrics for monitoring
-        reconstruction_loss, conformal_loss = batch_metrics
+        reconstruction_loss, conformal_loss, regularization_loss = batch_metrics
         if val:
             self.val_loss_list.append(batch_loss.item())
             self.val_metrics_list["reconstruction_loss"].append(reconstruction_loss)
             self.val_metrics_list["conformal_loss"].append(conformal_loss)
+            self.val_metrics_list["regularization_loss"].append(regularization_loss)
         else:
             self.loss_list.append(batch_loss.item())
             self.metrics_list["reconstruction_loss"].append(reconstruction_loss)
             self.metrics_list["conformal_loss"].append(conformal_loss)
+            self.metrics_list["regularization_loss"].append(regularization_loss)

@@ -200,10 +200,17 @@ def conformality_trace_loss(func, z, eta=0.2, create_graph=True, augment=True):
     return (TrN**2).mean()
 
 
-def conformality_cosine_loss(f, z, lam=1):
+def conformality_cosine_loss(f, z, augment=True, eta=0.2, lam=1):
     #sample batchsize pairs of orthogonal unit vectors
     bs = len(z)
-    u = torch.randn_like(z)
+    if augment:
+        z_perm = z[torch.randperm(bs)]
+        alpha = (torch.rand(bs) * (1 + 2*eta) - eta).unsqueeze(1).to(z)
+        z_augmented = alpha*z + (1-alpha)*z_perm
+    else:
+        z_augmented = z
+    
+    u = torch.randn_like(z_augmented)
     u = u / (u.norm(dim=1, keepdim=True) + 1e-8)
 
     def make_orthogonal(a):
@@ -229,8 +236,8 @@ def conformality_cosine_loss(f, z, lam=1):
     v = v / (v.norm(dim=1, keepdim=True) + 1e-8)
 
 
-    Jv = jvp(f, z, v, create_graph=True)[1]
-    Ju = jvp(f, z, u, create_graph=True)[1]
+    Jv = jvp(f, z_augmented, v, create_graph=True)[1]
+    Ju = jvp(f, z_augmented, u, create_graph=True)[1]
 
     # Compute the angle between the two vectors
     cos_angle = torch.cosine_similarity(Ju, Jv, dim=1)
@@ -247,6 +254,7 @@ def conformality_cosine2_loss(f, z, augment=True, eta=0.2, lam=1):
         z_augmented = alpha*z + (1-alpha)*z_perm
     else:
         z_augmented = z
+    
     u = torch.randn_like(z_augmented)
     v = torch.randn_like(z_augmented)
 
