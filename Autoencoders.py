@@ -8,7 +8,7 @@ from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 from torch.autograd.functional import jvp
 from torch.autograd.functional import jacobian
 
-from metrics import isometry_loss, scaled_isometry_loss, conformality_trace_loss as conformality_loss
+from metrics import isometry_loss, scaled_isometry_loss, conformality_trace_loss as conformality_loss, regularization1
 
 
 class Autoencoder(nn.Module):
@@ -193,10 +193,9 @@ class Autoencoder(nn.Module):
 
 
 class VariationalAutoencoder(Autoencoder):
-    def __init__(self, encoder, decoder, latent_dim, beta=1.0):
+    def __init__(self, encoder, decoder, beta=1.0):
         super(VariationalAutoencoder, self).__init__(encoder, decoder)
         self.name = "VariationalAutoencoder"
-        self.latent_dim = latent_dim
         self.beta = beta
 
         self.metrics_list = {"reconstruction_loss": [], "kl_loss": []}
