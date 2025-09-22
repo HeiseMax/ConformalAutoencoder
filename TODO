@@ -1,0 +1,17 @@
+
+
+Move augmentation to Autoencoder? Make wrapper function
+test trace loss with unnormalized vectors
+
+
+General Hyperparameters, losses, reg, etc as parameters for AE:
+num_samples for trace estimate (conform/regularization)
+
+
+
+Use Riemannina metric (J(z)^TJ(z)) to get geodesics -> interpolation.
+
+
+Is there a way to improve the estimate of c by using off diagonal elements? (https://chatgpt.com/share/6894cae7-29a4-800a-81d5-c18454d53609)
+Matrix Perturbation: https://arxiv.org/abs/2002.05001 (λi​=c+δMii​+j=i∑​c−λj​∣δMij​∣2​+⋯)
+Woodbury?

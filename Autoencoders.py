@@ -8,7 +8,7 @@ from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 from torch.autograd.functional import jvp
 from torch.autograd.functional import jacobian
 
-from metrics import isometry_loss, scaled_isometry_loss, conformality_trace_loss as conformality_loss, regularization1
+from metrics import isometry_loss, scaled_isometry_loss, conformality_trace_loss as conformality_loss, regularization
 
 
 class Autoencoder(nn.Module):
@@ -111,7 +111,7 @@ class Autoencoder(nn.Module):
                 # Compute loss
                 metrics = self.get_metrics(batch_data)
                 metrics_list.append(metrics)
-                loss = self.get_loss(metrics)
+                loss = self.get_loss(metrics, epoch=epoch)
                 loss_list.append(loss.item())
                 
                 # Backward pass and optimization
@@ -142,7 +142,7 @@ class Autoencoder(nn.Module):
                 for val_batch_data in val_dataloader:
                     val_metrics = self.get_metrics(val_batch_data, val=True)
                     val_metrics_list.append(val_metrics)
-                    val_loss = self.get_loss(val_metrics)
+                    val_loss = self.get_loss(val_metrics, epoch=epoch)
                     val_loss_list.append(val_loss.item())
 
                 val_batch_loss = self.get_batch_loss(val_loss_list)
@@ -224,7 +224,7 @@ class VariationalAutoencoder(Autoencoder):
         kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / x.size(0)
         return [reconstruction_loss, kl_loss]
 
-    def get_loss(self, metrics):
+    def get_loss(self, metrics, epoch):
         reconstruction_loss, kl_loss = metrics
         return reconstruction_loss + self.beta * kl_loss
 
@@ -275,7 +275,7 @@ class IsometricAutoencoder(Autoencoder):
         isometric_loss = self.isometry_loss(self.decoder, z)
         return [reconstruction_loss, isometric_loss]
     
-    def get_loss(self, metrics):
+    def get_loss(self, metrics, epoch):
         # Combine metrics to compute loss
         reconstruction_loss, isometric_loss = metrics
         return reconstruction_loss + self.lambda_iso * isometric_loss
@@ -333,32 +333,53 @@ class ScaledIsometricAutoencoder(IsometricAutoencoder):
 
 
 class ConformalAutoencoder(Autoencoder):
-    def __init__(self, encoder, decoder, lambda_conf=0.1, lambda_reg=0.0):
+    def __init__(self, encoder, decoder, lambda_conf=0.1, lambda_reg=0.0, lambda_aug=None, lambda_conf_schedule=None, lambda_reg_schedule=None):
         super(ConformalAutoencoder, self).__init__(encoder, decoder)
         self.name = "ConformalAutoencoder"
         self.lambda_conf = lambda_conf
         self.lambda_reg = lambda_reg
+        self.lambda_conf_schedule = lambda_conf_schedule
+        self.lambda_reg_schedule = lambda_reg_schedule
+        self.lambda_aug = lambda_aug
 
         self.conformality_loss = conformality_loss
-        self.regularization_loss = regularization1
+        self.regularization_loss = regularization
 
         self.metrics_list = {"reconstruction_loss": [], "conformal_loss": [], "regularization_loss": []}
         self.val_metrics_list = {"reconstruction_loss": [], "conformal_loss": [], "regularization_loss": []}
 
     def get_metrics(self, x, val=False):
         # Compute all relevant metrics
+        bs = x.size(0)
         z = self.encode(x)
         x_reconstructed = self.decode(z)
         reconstruction_loss = nn.MSELoss()(x_reconstructed, x)
-        conformal_loss = self.conformality_loss(self.decoder, z)
-        regularization_loss = self.regularization_loss(self.decoder, z)
+
+        if self.lambda_aug is not None:
+            z_perm = z[torch.randperm(bs)]
+            alpha = (torch.rand(bs) * (1 + 2*self.lambda_aug) - self.lambda_aug).unsqueeze(1).to(z)
+            z_aug = alpha*z + (1-alpha)*z_perm
+        else:
+            z_aug = z
+        conformal_loss = self.conformality_loss(self.decoder, z_aug)
+        regularization_loss = self.regularization_loss(self.decoder, z_aug)
         return [reconstruction_loss, conformal_loss, regularization_loss]
     
-    def get_loss(self, metrics):
+    def get_loss(self, metrics, epoch):
         # Combine metrics to compute loss
         reconstruction_loss, conformal_loss, regularization_loss = metrics
-        return reconstruction_loss + self.lambda_conf * conformal_loss + self.lambda_reg * regularization_loss
-    
+
+        if self.lambda_conf_schedule is not None:
+            lambda_conf = self.lambda_conf_schedule(epoch, self.lambda_conf)
+        else:
+            lambda_conf = self.lambda_conf
+        if self.lambda_reg_schedule is not None:
+            lambda_reg = self.lambda_reg_schedule(epoch, self.lambda_reg)
+        else:
+            lambda_reg = self.lambda_reg
+        
+        return reconstruction_loss + lambda_conf * conformal_loss + lambda_reg * regularization_loss
+
     def get_batch_loss(self, loss_list):
         # Compute the average loss for the batch
         batch_loss = torch.mean(torch.tensor(loss_list))

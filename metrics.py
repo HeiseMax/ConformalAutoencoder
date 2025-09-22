@@ -1,9 +1,9 @@
 import torch
 from torch.autograd.functional import jvp, vjp
-
-
 from torch.func import functional_call, jacrev, vmap
 
+
+# Helper functions
 def gini(w: torch.Tensor) -> torch.Tensor:
     r"""The Gini coefficient from the `"Improving Molecular Graph Neural
     Network Explainability with Orthonormalization and Induced Sparsity"
@@ -30,22 +30,57 @@ def gini(w: torch.Tensor) -> torch.Tensor:
     s /= w.shape[0]
     return s
 
-def get_batch_jacobian(func, inputs):
-    # if func.dtype == torch.float64:
-    #     inputs = inputs.double()
+def get_batch_jacobian(func, inputs, chunk_size=64):
     params = dict(func.named_parameters())
 
     def fmodel(params, inputs):
         return functional_call(func, params, inputs.flatten().unsqueeze(0)).flatten()
 
-    jacobians = vmap(jacrev(fmodel, argnums=(1)), in_dims=(None,0))(params, inputs)
+    jacobians = []
+    for i in range(0, inputs.size(0), chunk_size):
+        chunk = inputs[i:i+chunk_size]
+        chunk_jacobians = vmap(jacrev(fmodel, argnums=(1)), in_dims=(None,0))(params, chunk)
+        jacobians.append(chunk_jacobians)
+        
+    jacobians =  torch.cat(jacobians, dim=0)
+    torch.cuda.empty_cache()
     return jacobians
 
-def evaluate_conformality(model, data):
-    # still needs flattening for convolutions
+def get_JTJ_trace_estimate(func, inputs, chunk_size=64, num_samples=20, create_graph=False):
+    bs = len(inputs)
+    
+    # Initialize result tensor
+    trace_estimates = torch.zeros(bs, device=inputs.device)
+    
+    # Process in chunks
+    for i in range(0, bs, chunk_size):
+        end_idx = min(i + chunk_size, bs)
+        chunk = inputs[i:end_idx]
+        chunk_bs = end_idx - i
+        
+        chunk_traces = []
+        for _ in range(num_samples):
+            v = torch.randn_like(chunk)
+            Jv = jvp(func, chunk, v=v, create_graph=create_graph)[1]
+            trace_sample = torch.sum(Jv.view(chunk_bs, -1)**2, dim=1)
+            chunk_traces.append(trace_sample)
+        
+        # Average over samples for this chunk
+        chunk_trace = torch.stack(chunk_traces, dim=0).mean(dim=0)
+        trace_estimates[i:end_idx] = chunk_trace
+        
+        # Clear memory after each chunk
+        torch.cuda.empty_cache()
+    
+    return trace_estimates
+
+
+# Evaluation function for conformality
+def evaluate_conformality(model, data, double_precision=False):
     model.eval()
-    model.double()
-    data = data.double()
+    if double_precision:
+        model.double()
+        data = data.double()
     with torch.no_grad():
         data_dim = data.shape[1]
         # latent samples
@@ -61,6 +96,11 @@ def evaluate_conformality(model, data):
         jTjs = torch.einsum('bji,bjk->bik', jacobians, jacobians)
         traces = vmap(torch.trace)(jTjs)
         lambda_factors = traces / latent.shape[1]
+
+        # Estimate the trace of J^T J
+        trace_estimate = get_JTJ_trace_estimate(model.decoder, latent)
+        lambda_factors_estimate = trace_estimate / latent.shape[1]
+        lambda_factors_meanerror = torch.mean(torch.abs(lambda_factors - lambda_factors_estimate))
 
         # gini for diagonal elements
         diagonals = jTjs.diagonal(dim1=1, dim2=2)
@@ -82,23 +122,22 @@ def evaluate_conformality(model, data):
         jTj_minus_lambdaI_norm_normed = jTj_minus_lambdaI_norm / lambda_factors
 
         # determinant of jacobian vs sqrt lambda**m
-        # print(f"JtJ: {jTjs[0:5]}")
         jacobian_determinants = torch.sqrt(torch.linalg.det(jTjs))
-        # print(f"jacobian_determinants: {jacobian_determinants[0:5]}")
         estimate_determinants = torch.sqrt(lambda_factors**latent_dim)
-        # print(f"estimate_determinants: {estimate_determinants[0:5]}")
+        estimate_estimate_determinants = torch.sqrt(lambda_factors_estimate**latent_dim)
         determinant_vs_estimate = jacobian_determinants / (estimate_determinants + torch.finfo(torch.float32).eps)
+        determinant_vs_estimate_meanerror = torch.mean(torch.abs(jacobian_determinants - estimate_determinants))
+        determinant_vs_estimate_estimate = jacobian_determinants / (estimate_estimate_determinants + torch.finfo(torch.float32).eps)
 
+        # log determinant of jacobian vs 0.5 * latent_dim * log(lambda)
         jacobian_log_determinants = 0.5 * torch.logdet(jTjs)
-        # print(lambda_factors)
-        # print(torch.linalg.slogdet(jTjs)[0])
-        # print(jacobian_log_determinants)
         log_det_estimate = 0.5 * latent_dim * torch.log(lambda_factors)
         log_determinant_vs_estimate = jacobian_log_determinants - log_det_estimate
+        log_det_estimate_estimate = jacobian_log_determinants - 0.5 * latent_dim * torch.log(lambda_factors_estimate)
+        log_determinant_vs_estimate_estimate = jacobian_log_determinants - log_det_estimate_estimate
 
         # std of latent space
         latent_std = latent.std(dim=0)
-        # print(jacobian_determinants.dtype)
         
         return {
             'reconstruction_error': torch.nn.MSELoss()(data, model.decode(latent)).item(),
@@ -106,6 +145,7 @@ def evaluate_conformality(model, data):
             'lambda_mean': lambda_factors.mean().item(),
             'lambda_std': lambda_factors.std().item(),
             'lambda_std_normed': (lambda_factors.std() /lambda_factors.mean()).item(),
+            'lambda_factors_meanerror': lambda_factors_meanerror.item(),
             'off_diag_mean': off_diag_mean.mean().item(),
             'off_diag_norm': off_diag_norm.mean().item(),
             'off_diag_mean_normed': off_diag_mean_normed.mean().item(),
@@ -116,32 +156,29 @@ def evaluate_conformality(model, data):
             'jTj_minus_lambdaI_norm_normed': jTj_minus_lambdaI_norm_normed.mean().item(),
             'determinant_vs_estimate_mean': determinant_vs_estimate.mean().item(),
             'determinant_vs_estimate_std': determinant_vs_estimate.std().item(),
+            'determinant_vs_estimate_meanerror': determinant_vs_estimate_meanerror.item(),
+            'determinant_vs_estimate_estimate_mean': determinant_vs_estimate_estimate.mean().item(),
             'log_determinant_vs_estimate_mean': log_determinant_vs_estimate.mean().item(),
             'log_determinant_vs_estimate_std': log_determinant_vs_estimate.std().item(),
+            'log_determinant_vs_estimate_estimate_mean': log_determinant_vs_estimate_estimate.mean().item(),
             'latent_std': latent_std.mean().item(),
             'latent_std_max': latent_std.max().item(),
             'latent_std_min': latent_std.min().item(),
             'latent_norm': latent.norm().item(),
-        }
-    
-def isometry_loss(func, z, epsilon=1e-8, eta=0.2, create_graph=True, augment=True):
+        }, lambda_factors
+
+
+# Isometry loss functions
+def isometry_loss(func, z, create_graph=True):
     """
     z: (batch_size, latent_dim) latent vectors sampled from Piso
     """
-    bs = len(z)
-    if augment:
-        z_perm = z[torch.randperm(bs)]
-        alpha = (torch.rand(bs) * (1 + 2*eta) - eta).unsqueeze(1).to(z)
-        z_augmented = alpha*z + (1-alpha)*z_perm
-    else:
-        z_augmented = z
-    
     # Sample u ~ Uniform(S^{d-1}), i.e., unit vector on sphere
-    u = torch.randn_like(z_augmented)
-    u = u / (u.norm(dim=1, keepdim=True) + epsilon)
+    u = torch.randn_like(z)
+    u = u / (u.norm(dim=1, keepdim=True) + 1e-8)
 
     # Compute Jv = df(z) @ u
-    Jv = jvp(func, z_augmented, u, create_graph=create_graph)[1]
+    Jv = jvp(func, z, u, create_graph=create_graph)[1]
 
     # Compute norm of Jv and apply the isometric loss
     Jv_norm = Jv.norm(dim=1)
@@ -149,68 +186,100 @@ def isometry_loss(func, z, epsilon=1e-8, eta=0.2, create_graph=True, augment=Tru
 
     return loss
 
-def scaled_isometry_loss(func, z, eta=0.2, create_graph=True, augment=True):
+def scaled_isometry_loss(func, z, create_graph=True):
     '''
     func: decoder that maps "latent value z" to "data", where z.size() == (batch_size, latent_dim)
     '''
     bs = len(z)
-    if augment:
-        z_perm = z[torch.randperm(bs)]
-        alpha = (torch.rand(bs) * (1 + 2*eta) - eta).unsqueeze(1).to(z)
-        z_augmented = alpha*z + (1-alpha)*z_perm
-    else:
-        z_augmented = z
 
     v = torch.randn(z.size()).to(z)
     Jv = jvp(
-        func, z_augmented, v=v, create_graph=create_graph)[1]
-    TrG = torch.sum(Jv.view(bs, -1)**2, dim=1).mean() #TODO this looks wrong? Use JtJv instead of Jv^2?
+        func, z, v=v, create_graph=create_graph)[1]
+    TrG = torch.sum(Jv.view(bs, -1)**2, dim=1).mean()
     JTJv = (vjp(
-        func, z_augmented, v=Jv, create_graph=create_graph)[1]).view(bs, -1)
+        func, z, v=Jv, create_graph=create_graph)[1]).view(bs, -1)
     TrG2 = torch.sum(JTJv**2, dim=1).mean()
     return TrG2/TrG**2
 
 
-
-def conformality_trace_loss(func, z, eta=0.2, create_graph=True, augment=True):
+# Conformality loss functions
+def conformality_trace_loss(func, z, num_samples=1, create_graph=True):
     '''
     func: decoder that maps "latent value z" to "data", where z.size() == (batch_size, latent_dim)
     '''
     bs = len(z)
-    if augment:
-        z_perm = z[torch.randperm(bs)]
-        alpha = (torch.rand(bs) * (1 + 2*eta) - eta).unsqueeze(1).to(z)
-        z_augmented = alpha*z + (1-alpha)*z_perm
-    else:
-        z_augmented = z
-
-    v = torch.randn(z.size()).to(z)
-    v = v / (v.norm(dim=1, keepdim=True) + 1e-7)
-    Jv = jvp(
-        func, z_augmented, v=v, create_graph=create_graph)[1]
-    JTJv = (vjp(
-        func, z_augmented, v=Jv, create_graph=create_graph)[1]).view(bs, -1)
-    
-    TrG = torch.sum(Jv.view(bs, -1)**2, dim=1)
-    TrG2 = torch.sum(JTJv**2, dim=1)
     m = z.shape[1]
-    TrN = (TrG2 - (2/m *(TrG**2)))
-    # TrN = TrG2 / (TrG**2) #needs gradient clipping
+    
+    TrN_samples = []
+    
+    for _ in range(num_samples):
+        v = torch.randn(z.size()).to(z)
+        v = v / (v.norm(dim=1, keepdim=True) + 1e-7) # this should be tested with unnormalized vectors
+        
+        Jv = jvp(func, z, v=v, create_graph=create_graph)[1]
+        JTJv = vjp(func, z, v=Jv, create_graph=create_graph)[1]
+        
+        TrG = torch.sum(Jv.view(bs, -1)**2, dim=1)
+        TrG2 = torch.sum(JTJv.view(bs, -1)**2, dim=1)
+        TrN = (TrG2 - (1/m * (TrG**2)))
+        
+        TrN_samples.append(TrN)
+    
+    # Average over samples, then over batch
+    TrN_mean = torch.stack(TrN_samples, dim=0).mean(dim=0)
+    return (TrN_mean**2).mean() #does this also work for abs instead of square?
 
-    return (TrN**2).mean()
+def conformality_trace2_loss(func, z, num_samples=1, create_graph=True):
+    '''
+    func: decoder that maps "latent value z" to "data", where z.size() == (batch_size, latent_dim)
+    '''
+    bs = len(z)
+    m = z.shape[1]
+    
+    TrN_samples = []
+    
+    for _ in range(num_samples):
+        v = torch.randn(z.size()).to(z)
+        # v = v / (v.norm(dim=1, keepdim=True) + 1e-7) # this should be tested with unnormalized vectors
+        
+        Jv = jvp(func, z, v=v, create_graph=create_graph)[1]
+        JTJv = vjp(func, z, v=Jv, create_graph=create_graph)[1]
+        
+        TrG = torch.sum(Jv.view(bs, -1)**2, dim=1)
+        TrG2 = torch.sum(JTJv.view(bs, -1)**2, dim=1)
+        TrN = (TrG2 - (1/m * (TrG**2)))
+        
+        TrN_samples.append(TrN)
+    
+    # Average over samples, then over batch
+    TrN_mean = torch.stack(TrN_samples, dim=0).mean(dim=0)
+    return (TrN_mean**2).mean() #does this also work for abs instead of square?
 
-
-def conformality_cosine_loss(f, z, augment=True, eta=0.2, lam=1):
+def conformality_cosine_loss(f, z, create_graph=True):
     #sample batchsize pairs of orthogonal unit vectors
     bs = len(z)
-    if augment:
-        z_perm = z[torch.randperm(bs)]
-        alpha = (torch.rand(bs) * (1 + 2*eta) - eta).unsqueeze(1).to(z)
-        z_augmented = alpha*z + (1-alpha)*z_perm
-    else:
-        z_augmented = z
+
+    #
+    # Could sample multiple pairs of vectors
+    #
     
-    u = torch.randn_like(z_augmented)
+    u = torch.randn_like(z)
+    v = torch.randn_like(z)
+    cos_uv = torch.cosine_similarity(u,v, dim=1)
+
+    Jv = jvp(f, z, v, create_graph=create_graph)[1].view(bs, -1)
+    Ju = jvp(f, z, u, create_graph=create_graph)[1].view(bs, -1)
+    cos_JuJv = torch.cosine_similarity(Ju, Jv, dim=1)
+
+    angle_loss = torch.mean((cos_uv - cos_JuJv) ** 2)
+    return angle_loss
+
+##
+def conformality_cosine_orthounit_loss(f, z, create_graph=True):
+    #sample batchsize pairs of orthogonal unit vectors
+    bs = len(z)
+    
+    u = torch.randn_like(z)
     u = u / (u.norm(dim=1, keepdim=True) + 1e-8)
 
     def make_orthogonal(a):
@@ -236,8 +305,8 @@ def conformality_cosine_loss(f, z, augment=True, eta=0.2, lam=1):
     v = v / (v.norm(dim=1, keepdim=True) + 1e-8)
 
 
-    Jv = jvp(f, z_augmented, v, create_graph=True)[1]
-    Ju = jvp(f, z_augmented, u, create_graph=True)[1]
+    Jv = jvp(f, z, v, create_graph=create_graph)[1]
+    Ju = jvp(f, z, u, create_graph=create_graph)[1]
 
     # Compute the angle between the two vectors
     cos_angle = torch.cosine_similarity(Ju, Jv, dim=1)
@@ -245,52 +314,20 @@ def conformality_cosine_loss(f, z, augment=True, eta=0.2, lam=1):
     angle_loss = torch.mean((cos_angle) ** 2)
     return angle_loss
 
-def conformality_cosine2_loss(f, z, augment=True, eta=0.2, lam=1):
-    #sample batchsize pairs of orthogonal unit vectors
-    bs = len(z)
-    if augment:
-        z_perm = z[torch.randperm(bs)]
-        alpha = (torch.rand(bs) * (1 + 2*eta) - eta).unsqueeze(1).to(z)
-        z_augmented = alpha*z + (1-alpha)*z_perm
-    else:
-        z_augmented = z
-    
-    u = torch.randn_like(z_augmented)
-    v = torch.randn_like(z_augmented)
 
-    cos_uv = torch.cosine_similarity(u,v, dim=1)
-
-
-    Jv = jvp(f, z_augmented, v, create_graph=True)[1].view(bs, -1)
-    Ju = jvp(f, z_augmented, u, create_graph=True)[1].view(bs, -1)
-
-    # Compute the angle between the two vectors
-    cos_JuJv = torch.cosine_similarity(Ju, Jv, dim=1)
-
-    angle_loss = torch.mean((cos_uv - cos_JuJv) ** 2)
-    return angle_loss
-
-
-def regularization1(func, z, create_graph=True, augment=True):
+# Regularization functions for the decoder
+def regularization(func, z, num_samples=1, create_graph=True):
     '''
     func: decoder that maps "latent value z" to "data", where z.size() == (batch_size, latent_dim)
     '''
     bs = len(z)
-
-    v = torch.randn(z.size()).to(z)
-    v = v / (v.norm(dim=1, keepdim=True) + 1e-7)
-    Jv = jvp(
-        func, z, v=v, create_graph=create_graph)[1]
-    
-    TrG = torch.sum(Jv.view(bs, -1)**2, dim=1)
+    TrJTJ = get_JTJ_trace_estimate(func, z, chunk_size=bs, num_samples=num_samples, create_graph=create_graph)
     m = z.shape[1]
 
-    # print(TrG.mean()/ m)
-    # This works better without the /m
+    return ((TrJTJ.mean() / m) -1)**2
 
-    return ((TrG.mean()) -1)**2
-
-def regularization5(func, z, goal_norm=40.0, create_graph=True, augment=True):
+##
+def regularization5(func, z, goal_norm=40.0, create_graph=True):
     '''
     func: decoder that maps "latent value z" to "data", where z.size() == (batch_size, latent_dim)
     '''
@@ -298,12 +335,12 @@ def regularization5(func, z, goal_norm=40.0, create_graph=True, augment=True):
 
     return (z.norm() - goal_norm)**2
 
-def regularization4(f, z, lam=1):
+def regularization4(f, z, create_graph=True):
     # sample pairs pairs of orthogonal unit vectors, compare cosine similarity and length
     bs = len(z)
     v = torch.randn_like(z)
 
-    Jv = jvp(f, z, v, create_graph=True)[1]
+    Jv = jvp(f, z, v, create_graph=create_graph)[1]
 
     v_len = v.norm(dim=1)
     Jv_len = Jv.norm(dim=1)
