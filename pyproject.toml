@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "conformal_autoencoder"
+version = "0.1.0"
+
+[tool.setuptools]
+# Include all the top-level modules you want importable
+package-dir = {"" = "mylib"}
+py-modules = ["Autoencoders", "data", "helper", "metrics"]  # add/remove as needed
