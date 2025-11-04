@@ -257,10 +257,11 @@ class VariationalAutoencoder(Autoencoder):
 
 
 class IsometricAutoencoder(Autoencoder):
-    def __init__(self, encoder, decoder, lambda_iso=1.0):
+    def __init__(self, encoder, decoder, lambda_iso=1.0, lambda_aug=None):
         super(IsometricAutoencoder, self).__init__(encoder, decoder)
         self.name = "IsometricAutoencoder"
         self.lambda_iso = lambda_iso
+        self.lambda_aug = lambda_aug
 
         self.isometry_loss = isometry_loss
 
@@ -269,10 +270,19 @@ class IsometricAutoencoder(Autoencoder):
     
     def get_metrics(self, x, val=False):
         # Compute all relevant metrics
+        bs = x.size(0)
         z = self.encode(x)
         x_reconstructed = self.decode(z)
         reconstruction_loss = nn.MSELoss()(x_reconstructed, x)
-        isometric_loss = self.isometry_loss(self.decoder, z)
+
+        if self.lambda_aug is not None:
+            z_perm = z[torch.randperm(bs)]
+            alpha = (torch.rand(bs) * (1 + 2*self.lambda_aug) - self.lambda_aug).unsqueeze(1).to(z)
+            z_aug = alpha*z + (1-alpha)*z_perm
+        else:
+            z_aug = z
+
+        isometric_loss = self.isometry_loss(self.decoder, z_aug)
         return [reconstruction_loss, isometric_loss]
     
     def get_loss(self, metrics, epoch):
@@ -313,10 +323,11 @@ class IsometricAutoencoder(Autoencoder):
 
 
 class ScaledIsometricAutoencoder(IsometricAutoencoder):
-    def __init__(self, encoder, decoder, lambda_iso=1.0):
+    def __init__(self, encoder, decoder, lambda_iso=1.0, lambda_aug=None):
         super(ScaledIsometricAutoencoder, self).__init__(encoder, decoder)
         self.name = "ScaledIsometricAutoencoder"
         self.lambda_iso = lambda_iso
+        self.lambda_aug = lambda_aug
 
         self.scaled_isometry_loss = scaled_isometry_loss
 
@@ -325,10 +336,18 @@ class ScaledIsometricAutoencoder(IsometricAutoencoder):
     
     def get_metrics(self, x, val=False):
         # Compute all relevant metrics
+        bs = x.size(0)
         z = self.encode(x)
         x_reconstructed = self.decode(z)
         reconstruction_loss = nn.MSELoss()(x_reconstructed, x)
-        isometric_loss = self.scaled_isometry_loss(self.decoder, z)
+
+        if self.lambda_aug is not None:
+            z_perm = z[torch.randperm(bs)]
+            alpha = (torch.rand(bs) * (1 + 2*self.lambda_aug) - self.lambda_aug).unsqueeze(1).to(z)
+            z_aug = alpha*z + (1-alpha)*z_perm
+        else:
+            z_aug = z
+        isometric_loss = self.scaled_isometry_loss(self.decoder, z_aug)
         return [reconstruction_loss, isometric_loss]
 
 
