@@ -9,4 +9,4 @@ version = "0.1.0"
 [tool.setuptools]
 # Include all the top-level modules you want importable
 package-dir = {"" = "mylib"}
-py-modules = ["Autoencoders", "data", "helper", "metrics"]  # add/remove as needed
+py-modules = ["Autoencoders", "data", "helper", "metrics", "networks"]  # add/remove as needed

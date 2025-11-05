@@ -94,7 +94,7 @@ class Autoencoder(nn.Module):
 
     
     # train loop
-    def train_model(self, train_dataloader, val_dataloader=None, epochs=1000, batch_size=64, learning_rate=0.001, optimizer=None, scheduler=None, optimizer_kwargs={}, scheduler_kwargs={"step_size":100, "gamma":0.1}, log_every=100, val_every=100, verbose=True):        
+    def train_model(self, train_dataloader, val_dataloader=None, has_label=False, epochs=1000, batch_size=64, learning_rate=0.001, optimizer=None, scheduler=None, optimizer_kwargs={}, scheduler_kwargs={"step_size":100, "gamma":0.1}, log_every=100, val_every=100, verbose=True):        
         # Define optimizer and scheduler
         if optimizer is None:
             optimizer = self.get_default_optimizer(learning_rate, optimizer_kwargs)
@@ -108,6 +108,8 @@ class Autoencoder(nn.Module):
             loss_list = []
             metrics_list = []
             for batch_data in train_dataloader:
+                if has_label:
+                    batch_data, _ = batch_data
                 # Compute loss
                 metrics = self.get_metrics(batch_data)
                 metrics_list.append(metrics)
