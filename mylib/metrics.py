@@ -76,7 +76,7 @@ def get_JTJ_trace_estimate(func, inputs, chunk_size=64, num_samples=20, create_g
 
 
 # Evaluation function for conformality
-def evaluate_conformality(model, data, double_precision=False):
+def evaluate_conformality(model, data, double_precision=False, chunk_size=64):
     model.eval()
     if double_precision:
         model.double()
@@ -92,13 +92,13 @@ def evaluate_conformality(model, data, double_precision=False):
         latent_dim = latent.shape[1]
 
         # Compute the Jacobian of the decoder
-        jacobians = get_batch_jacobian(model.decoder, latent)
+        jacobians = get_batch_jacobian(model.decoder, latent, chunk_size=chunk_size)
         jTjs = torch.einsum('bji,bjk->bik', jacobians, jacobians)
         traces = vmap(torch.trace)(jTjs)
         lambda_factors = traces / latent.shape[1]
 
         # Estimate the trace of J^T J
-        trace_estimate = get_JTJ_trace_estimate(model.decoder, latent)
+        trace_estimate = get_JTJ_trace_estimate(model.decoder, latent, chunk_size=chunk_size)
         lambda_factors_estimate = trace_estimate / latent.shape[1]
         lambda_factors_meanerror = torch.mean(torch.abs(lambda_factors - lambda_factors_estimate))
         lambda_factors_meanerror_normalized = lambda_factors_meanerror / (lambda_factors.mean() + torch.finfo(torch.float32).eps)

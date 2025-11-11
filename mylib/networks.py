@@ -145,14 +145,14 @@ class Encoder(nn.Module):
       Input:  B x 3 x H x W  (any H, W)
       Output: z (B x z_dim), context dict for Decoder
     """
-    def __init__(self, z_dim: int = 512, base_ch: int = 64, gap_ch: int = 1):
+    def __init__(self, z_dim: int = 512, in_ch: int = 3, base_ch: int = 64, gap_ch: int = 1):
         super().__init__()
         c1, c2, c3 = base_ch, base_ch*2, base_ch*4  # 64, 128, 256
         self.gap_ch = gap_ch
         self.z_dim = z_dim
 
         # Stage 0 (no downsample)
-        self.conv0 = ConvBNReLU(3, c1, k=3, s=1, p=1)
+        self.conv0 = ConvBNReLU(in_ch, c1, k=3, s=1, p=1)
 
         # Down 1: /2
         self.down1 = ConvBNReLU(c1, c2, k=3, s=2, p=1)
@@ -216,7 +216,7 @@ class Decoder(nn.Module):
       Input:  z (B x z_dim), context dict from Encoder
       Output: x_hat (B x 3 x H x W) cropped to original size
     """
-    def __init__(self, z_dim: int = 512, base_ch: int = 64, gap_ch: int = 1, out_act: str = "sigmoid"):
+    def __init__(self, z_dim: int = 512, out_ch: int = 3, base_ch: int = 64, gap_ch: int = 1, out_act: str = "sigmoid"):
         super().__init__()
         c1, c2, c3 = base_ch, base_ch*2, base_ch*4  # 64, 128, 256
         self.gap_ch = gap_ch
@@ -238,7 +238,7 @@ class Decoder(nn.Module):
         self.up3 = DeconvBNReLU(c2, c1, k=4, s=2, p=1)  # H/2 -> H
         self.conv3 = ConvBNReLU(c1, c1, k=3, s=1, p=1)
 
-        self.out_conv = nn.Conv2d(c1, 3, kernel_size=3, stride=1, padding=1)
+        self.out_conv = nn.Conv2d(c1, out_ch, kernel_size=3, stride=1, padding=1)
         nn.init.xavier_uniform_(self.out_conv.weight)
         nn.init.zeros_(self.out_conv.bias)
 

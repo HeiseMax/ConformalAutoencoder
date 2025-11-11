@@ -7,6 +7,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 from torch.autograd.functional import jvp
 from torch.autograd.functional import jacobian
+from tqdm import tqdm
 
 from metrics import isometry_loss, scaled_isometry_loss, conformality_trace_loss as conformality_loss, regularization
 
@@ -107,19 +108,29 @@ class Autoencoder(nn.Module):
             self.model.train()
             loss_list = []
             metrics_list = []
-            for batch_data in train_dataloader:
+            # wrap training iterator with tqdm when verbose
+            train_iter = train_dataloader
+            if verbose:
+                train_iter = tqdm(train_dataloader, desc=f'Epoch {epoch+1}/{epochs} [train]', leave=False)
+
+            for batch_data in train_iter:
                 if has_label:
                     batch_data, _ = batch_data
                 # Compute loss
                 metrics = self.get_metrics(batch_data)
-                metrics_list.append(metrics)
+                metrics_list.append([metric.item() for metric in metrics])
                 loss = self.get_loss(metrics, epoch=epoch)
                 loss_list.append(loss.item())
-                
                 # Backward pass and optimization
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+                if verbose:
+                    # update progressbar with latest batch loss
+                    try:
+                        train_iter.set_postfix({'batch_loss': float(loss.item())})
+                    except Exception:
+                        pass
             
             batch_loss = self.get_batch_loss(loss_list)
             batch_metrics = self.get_batch_metrics(metrics_list)
@@ -141,11 +152,23 @@ class Autoencoder(nn.Module):
                 # with torch.no_grad():
                 val_loss_list = []
                 val_metrics_list = []
-                for val_batch_data in val_dataloader:
+                # wrap validation iterator with tqdm when verbose
+                val_iter = val_dataloader
+                if verbose:
+                    val_iter = tqdm(val_dataloader, desc=f'Epoch {epoch+1}/{epochs} [val]', leave=False)
+
+                for val_batch_data in val_iter:
+                    if has_label:
+                        val_batch_data, _ = val_batch_data
                     val_metrics = self.get_metrics(val_batch_data, val=True)
-                    val_metrics_list.append(val_metrics)
+                    val_metrics_list.append([metric.item() for metric in val_metrics])
                     val_loss = self.get_loss(val_metrics, epoch=epoch)
                     val_loss_list.append(val_loss.item())
+                    if verbose:
+                        try:
+                            val_iter.set_postfix({'val_batch_loss': float(val_loss.item())})
+                        except Exception:
+                            pass
 
                 val_batch_loss = self.get_batch_loss(val_loss_list)
                 val_batch_metrics = self.get_batch_metrics(val_metrics_list)
