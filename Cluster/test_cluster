@@ -1,0 +1,10 @@
+#!/bin/bash
+#SBATCH --partition=gpu-single
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=40
+#SBATCH --gres=gpu:A40:1
+#SBATCH --time=00:10:00
+#SBATCH --mem=10gb
+module load devel/miniforge
+conda activate condAE
+python Cluster/cluster_test.py
