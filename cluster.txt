@@ -1,0 +1,46 @@
+Helix interface:
+ssh -l hd_dn249 helix.bwservices.uni-heidelberg.de
+
+Helix datatransfer:
+sftp hd_dn249@helix.bwservices.uni-heidelberg.de
+put myfile (from PC)
+get myfile (from Cluster)
+
+Compress:
+tar -czvf archive.tar.gz directory
+Decompress:
+tar -xzvf archive.tar.gz directory
+
+Conda module:
+module load devel/miniforge
+
+Cuda module:
+module load devel/cuda/12.8
+
+GNU module:
+module load compiler/gnu/11.3
+
+Conda env:
+confAE
+
+start job:
+sbatch <job-script>
+
+status queue:
+squeue
+
+status job:
+scontrol show job <jobid>
+
+feedback:
+seff <jobid>
+
+cancel job:
+scancel <jobid>
+
+idle information:
+sinfo_t_idle
+
+port forwarding:
+ssh-console: "alt gr" + "Tilde", "Shift" + "C"
+-L 3000:localhost:3000
