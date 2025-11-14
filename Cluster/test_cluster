@@ -6,5 +6,5 @@
 #SBATCH --time=00:10:00
 #SBATCH --mem=10gb
 module load devel/miniforge
-conda activate condAE
+conda activate confAE
 python Cluster/cluster_test.py
