@@ -5,6 +5,7 @@
 #SBATCH --gres=gpu:A40:1
 #SBATCH --time=00:10:00
 #SBATCH --mem=10gb
+#SBATCH --output=/home/hd/hd_hd/hd_dn249/ConformalAutoencoder/Cluster/output/%j.out
 module load devel/miniforge
 conda activate confAE
 python Cluster/cluster_test.py
