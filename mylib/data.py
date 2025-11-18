@@ -106,8 +106,7 @@ class CelebA(Dataset):
         if transform is None:
             transform = [
                 transforms.Pad((0, 3), padding_mode='symmetric'), # pad and crop from 218x178 to 224x176 (divisible by 16)
-                transforms.CenterCrop((224, 176)),                
-                transforms.ToTensor()
+                transforms.CenterCrop((224, 176)),
             ]
 
         self.transform = transforms.Compose(transform + [transforms.ToTensor()])
