@@ -27,11 +27,16 @@ Further research:
 
 - Training needs to be more efficient. Calculate trace once and use for loss and reg.
 - Validation should check conformality metric with 10-20 samples. (prob 1,5 min per sample on celebA)
+- can the first reconstruction pass be used for the conformal loss?
 
 
 
 Change metric functions to take in quantities like jacobian etc. and make everything more modular
 Why is get_batch_jacobian so memory hungry, find alternative
 SHould losses be calculated with mean or norm or straight, squared?
-For every loss choice of vectors (angle, length) should be investigated
+For every loss, choice of vectors (angle, length) should be investigated
 Analysis of what takes how much time
+
+torchinfo missing in requirements.txt
+for cluster num workers cant be more than cpu cores
+What c-values does scaled iso take? is it even possible to calc jac?

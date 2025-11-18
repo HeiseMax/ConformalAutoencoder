@@ -146,6 +146,9 @@ class Autoencoder(nn.Module):
                 else:
                     scheduler.step()
 
+            del loss, batch_data, batch_metrics, metrics, metrics_list, loss_list
+            torch.cuda.empty_cache()
+
             # Validation step
             if val_dataloader is not None and (epoch + 1) % val_every == 0:
                 self.model.eval()
@@ -176,6 +179,9 @@ class Autoencoder(nn.Module):
 
                 if verbose:
                     self.log_loss_and_metrics(val_batch_loss, val_batch_metrics, epoch, epochs, val=True)
+
+                del val_loss, val_batch_data, val_batch_metrics, val_metrics, val_metrics_list, val_loss_list
+                torch.cuda.empty_cache()
 
         return optimizer, scheduler
 
@@ -377,7 +383,7 @@ class ScaledIsometricAutoencoder(IsometricAutoencoder):
 
 
 class ConformalAutoencoder(Autoencoder):
-    def __init__(self, encoder, decoder, lambda_conf=0.1, lambda_reg=0.0, lambda_aug=None, lambda_conf_schedule=None, lambda_reg_schedule=None):
+    def __init__(self, encoder, decoder, lambda_conf=0.1, lambda_reg=0.0, reg_in_loss=False, lambda_aug=None, lambda_conf_schedule=None, lambda_reg_schedule=None):
         super(ConformalAutoencoder, self).__init__(encoder, decoder)
         self.name = "ConformalAutoencoder"
         self.lambda_conf = lambda_conf
@@ -385,6 +391,7 @@ class ConformalAutoencoder(Autoencoder):
         self.lambda_conf_schedule = lambda_conf_schedule
         self.lambda_reg_schedule = lambda_reg_schedule
         self.lambda_aug = lambda_aug
+        self.reg_in_loss = reg_in_loss
 
         self.conformality_loss = conformality_loss
         self.regularization_loss = regularization
@@ -405,8 +412,12 @@ class ConformalAutoencoder(Autoencoder):
             z_aug = alpha*z + (1-alpha)*z_perm
         else:
             z_aug = z
-        conformal_loss = self.conformality_loss(self.decoder, z_aug)
-        regularization_loss = self.regularization_loss(self.decoder, z_aug)
+
+        if self.reg_in_loss:
+            conformal_loss, regularization_loss = self.conformality_loss(self.decoder, z_aug, regularize=True)
+        else:
+            conformal_loss = self.conformality_loss(self.decoder, z_aug, regularize=False)
+            regularization_loss = self.regularization_loss(self.decoder, z_aug)
         return [reconstruction_loss, conformal_loss, regularization_loss]
     
     def get_loss(self, metrics, epoch):

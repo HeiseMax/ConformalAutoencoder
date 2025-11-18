@@ -99,18 +99,18 @@ def get_celeba_label_names(root_dir=""):
 
 
 class CelebA(Dataset):
-    def __init__(self, root_dir="", transform=None, extensions=(".jpg",), test_size=0.2, split='train', device='cpu'):
+    def __init__(self, root_dir="", transform=None, filter_categories = [], extensions=(".jpg",), test_size=0.2, split='train', device='cpu'):
         self.root_dir = Path(f"{root_dir}data/CelebA/img_align_celeba")
         self.device = device
 
-        if transform:
-            self.transform = transform
-        else:
-            self.transform = transforms.Compose([
+        if transform is None:
+            transform = [
                 transforms.Pad((0, 3), padding_mode='symmetric'), # pad and crop from 218x178 to 224x176 (divisible by 16)
-                transforms.CenterCrop((224, 176)),
+                transforms.CenterCrop((224, 176)),                
                 transforms.ToTensor()
-            ])
+            ]
+
+        self.transform = transforms.Compose(transform + [transforms.ToTensor()])
 
         labels = parse_celeba_attr_file(Path(f"{root_dir}data/CelebA/list_attr_celeba.txt"))[2]
         self.samples = []
@@ -118,6 +118,67 @@ class CelebA(Dataset):
         folder = self.root_dir
         for p in folder.rglob("*"):
             if p.is_file() and p.suffix.lower() in extensions:
+                if not all(labels[p.name][cat] == is_true for cat, is_true in filter_categories):
+                    continue
+                label = labels[p.name]
+                self.samples.append((p, label))
+
+        self.train_samples, self.test_samples = train_test_split(self.samples, test_size=test_size, random_state=42)
+
+        if split == 'train':
+            self.samples = self.train_samples
+        else:
+            self.samples = self.test_samples
+
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        path, label = self.samples[idx]
+        with Image.open(path) as im:
+            # handle grayscale/alpha robustly
+            if im.mode in ("RGBA", "LA"):
+                im = im.convert("RGBA").convert("RGB")
+            else:
+                im = im.convert("RGB")
+        if self.transform:
+            im = self.transform(im)
+        return im.to(self.device), label
+    
+    def get_sample(self, num_samples=16, seed=42):
+        """
+        Get a batch of samples from the dataset.
+        """
+        np.random.seed(seed)
+        indices = np.random.choice(len(self), num_samples, replace=False)
+        images = []
+        labels = []
+        for idx in indices:
+            img, label = self[idx]
+            images.append(img)
+            labels.append(torch.tensor(label))
+        return torch.stack(images), torch.stack(labels)
+
+
+class CelebA_small(Dataset):
+    def __init__(self, root_dir="", transform=None, filter_categories = [], extensions=(".jpg",), test_size=0.2, split='train', device='cpu'):
+        self.root_dir = Path(f"{root_dir}data/CelebA_small/images")
+        self.device = device
+
+        if transform is None:
+            transform = []
+
+        self.transform = transforms.Compose(transform + [transforms.ToTensor()])
+
+        labels = parse_celeba_attr_file(Path(f"{root_dir}data/CelebA/list_attr_celeba.txt"))[2]
+        self.samples = []
+
+        folder = self.root_dir
+        for p in folder.rglob("*"):
+            if p.is_file() and p.suffix.lower() in extensions:
+                if not all(labels[p.name][cat] == is_true for cat, is_true in filter_categories):
+                    continue
                 label = labels[p.name]
                 self.samples.append((p, label))
 

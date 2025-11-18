@@ -35,6 +35,7 @@ dataloader = DataLoader(CelebA_dataset, batch_size=32, shuffle=False, num_worker
 
 for batch in dataloader:
     images, labels = batch
+    break
 
 
 plt.imshow(images[1].permute(1, 2, 0))

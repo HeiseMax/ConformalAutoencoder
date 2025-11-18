@@ -30,6 +30,10 @@ def gini(w: torch.Tensor) -> torch.Tensor:
     s /= w.shape[0]
     return s
 
+def gmean(input_x, dim):
+    log_x = torch.log(input_x)
+    return torch.exp(torch.mean(log_x, dim=dim))
+
 def get_batch_jacobian(func, inputs, chunk_size=64):
     params = dict(func.named_parameters())
 
@@ -248,7 +252,7 @@ def scaled_isometry_loss(func, z, create_graph=True):
 
 
 # Conformality loss functions
-def conformality_trace_loss(func, z, num_samples=1, create_graph=True):
+def conformality_trace_loss(func, z, num_samples=1, regularize=False, create_graph=True):
     '''
     func: decoder that maps "latent value z" to "data", where z.size() == (batch_size, latent_dim)
     '''
@@ -256,6 +260,7 @@ def conformality_trace_loss(func, z, num_samples=1, create_graph=True):
     m = z.shape[1]
     
     TrN_samples = []
+    reg_loss = 0.0
     
     for _ in range(num_samples):
         v = torch.randn(z.size()).to(z)
@@ -269,10 +274,18 @@ def conformality_trace_loss(func, z, num_samples=1, create_graph=True):
         TrN = (TrG2 - (1/m * (TrG**2)))
         
         TrN_samples.append(TrN)
+
+        if regularize:
+            # Regularization term to keep Jv norm close to 1
+            m = z.shape[1]
+            reg_loss += (gmean(TrG / m, dim=0) -1)**2
     
     # Average over samples, then over batch
     TrN_mean = torch.stack(TrN_samples, dim=0).mean(dim=0)
-    return (TrN_mean**2).mean() #does this also work for abs instead of square?
+    if regularize:
+        return (TrN_mean**2).mean(), reg_loss / num_samples
+    else:
+        return (TrN_mean**2).mean() #does this also work for abs instead of square?
 
 def conformality_trace2_loss(func, z, num_samples=1, create_graph=True):
     '''
@@ -300,7 +313,7 @@ def conformality_trace2_loss(func, z, num_samples=1, create_graph=True):
     TrN_mean = torch.stack(TrN_samples, dim=0).mean(dim=0)
     return (TrN_mean**2).mean() #does this also work for abs instead of square?
 
-def conformality_cosine_loss(f, z, create_graph=True):
+def conformality_cosine_loss(f, z, regularize=False, create_graph=True):
     #sample batchsize pairs of orthogonal unit vectors
     bs = len(z)
 
@@ -317,6 +330,10 @@ def conformality_cosine_loss(f, z, create_graph=True):
     cos_JuJv = torch.cosine_similarity(Ju, Jv, dim=1)
 
     angle_loss = torch.mean((cos_uv - cos_JuJv) ** 2)
+    if regularize:
+        TrG = torch.sum(Ju**2, dim=1)
+        reg_loss = (gmean(TrG / z.shape[1], dim=0) -1)**2
+        return angle_loss, reg_loss
     return angle_loss
 
 ##
@@ -369,6 +386,7 @@ def regularization(func, z, num_samples=1, create_graph=True):
     TrJTJ = get_JTJ_trace_estimate(func, z, chunk_size=bs, num_samples=num_samples, create_graph=create_graph)
     m = z.shape[1]
 
+    # return (gmean(TrJTJ / m, dim=0) -1)**2
     return ((TrJTJ.mean() / m) -1)**2
 
 ##
