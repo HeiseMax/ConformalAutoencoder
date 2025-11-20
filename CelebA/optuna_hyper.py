@@ -16,8 +16,8 @@ def main():
     print(device)
 
     transform = [transforms.CenterCrop((178, 178)), transforms.Resize((64, 64))]
-    train_dataset = CelebA(root_dir="", split="train", transform=transform, device=device, filter_categories=[(15, False), (20, True)])
-    val_dataset = CelebA(root_dir="", split="val", transform=transform, device=device, filter_categories=[(15, False), (20, True)])
+    train_dataset = CelebA(root_dir="../", split="train", transform=transform, device=device, filter_categories=[(15, False), (20, True)])
+    val_dataset = CelebA(root_dir="../", split="val", transform=transform, device=device, filter_categories=[(15, False), (20, True)])
 
     z_dim = 512
     in_ch = 3

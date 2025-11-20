@@ -8,4 +8,4 @@
 #SBATCH --output=/home/hd/hd_hd/hd_dn249/ConformalAutoencoder/Cluster/output/%j.out
 module load devel/miniforge
 conda activate confAE
-python CelebA/optuna_hyper.py
+python ../CelebA/optuna_hyper.py
