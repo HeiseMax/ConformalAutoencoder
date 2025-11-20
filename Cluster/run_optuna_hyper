@@ -1,0 +1,11 @@
+#!/bin/bash
+#SBATCH --partition=gpu-single
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=6
+#SBATCH --gres=gpu:A40:1
+#SBATCH --time=10:00:00
+#SBATCH --mem=10gb
+#SBATCH --output=/home/hd/hd_hd/hd_dn249/ConformalAutoencoder/Cluster/output/%j.out
+module load devel/miniforge
+conda activate confAE
+python CelebA/optuna_hyper.py
