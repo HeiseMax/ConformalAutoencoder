@@ -1,3 +1,8 @@
+import os
+os.environ["GIT_PYTHON_REFRESH"] = "quiet"
+import git
+
+
 import torch
 from torchvision import transforms
 from matplotlib import pyplot as plt
