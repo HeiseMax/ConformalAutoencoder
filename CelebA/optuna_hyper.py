@@ -17,7 +17,7 @@ import optuna
 import optunahub
 
 def main():
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(device)
 
     transform = [transforms.CenterCrop((178, 178)), transforms.Resize((64, 64))]
