@@ -143,7 +143,7 @@ class CelebA(Dataset):
                 im = im.convert("RGB")
         if self.transform:
             im = self.transform(im)
-        return im.to(self.device), label
+        return im, label
     
     def get_sample(self, num_samples=16, seed=42):
         """

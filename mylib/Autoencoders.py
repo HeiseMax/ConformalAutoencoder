@@ -22,6 +22,8 @@ class Autoencoder(nn.Module):
         self.decoder = decoder
         self.model = nn.Sequential(self.encoder, self.decoder)
 
+        self.reconstruction_loss = nn.MSELoss()
+
         self.epochs_trained = 0
         self.loss_list = []
         self.val_loss_list = []
@@ -52,7 +54,7 @@ class Autoencoder(nn.Module):
     def get_metrics(self, x, val=False):
         # Compute all relevant metrics
         x_reconstructed = self.forward(x)
-        loss = nn.MSELoss()(x_reconstructed, x)
+        loss = self.reconstruction_loss(x_reconstructed, x)
         return [loss]
     
     def get_loss(self, metrics, epoch):
@@ -103,6 +105,8 @@ class Autoencoder(nn.Module):
             optimizer = self.get_default_optimizer(learning_rate, optimizer_kwargs)
         if scheduler is None:
             scheduler = self.get_default_scheduler(optimizer, scheduler_kwargs)
+
+        device = next(self.parameters()).device
         
         # Training loop
         for epoch in range(epochs):
@@ -118,6 +122,7 @@ class Autoencoder(nn.Module):
             for batch_data in train_iter:
                 if has_label:
                     batch_data, _ = batch_data
+                batch_data = batch_data.to(device)
                 # Compute loss
                 metrics = self.get_metrics(batch_data)
                 metrics_list.append([metric.item() for metric in metrics])
