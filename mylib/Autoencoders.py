@@ -170,6 +170,7 @@ class Autoencoder(nn.Module):
                 for val_batch_data in val_iter:
                     if has_label:
                         val_batch_data, _ = val_batch_data
+                    val_batch_data = val_batch_data.to(device)
                     val_metrics = self.get_metrics(val_batch_data, val=True)
                     val_metrics_list.append([metric.item() for metric in val_metrics])
                     val_loss = self.get_loss(val_metrics, epoch=epoch)
