@@ -8,13 +8,19 @@ from typing import Tuple, Dict
 # ----------------------------
 
 class ConvBNReLU(nn.Module):
-    def __init__(self, in_ch, out_ch, k=3, s=1, p=1):
+    def __init__(self, in_ch, out_ch, k=3, s=1, p=1, norm=True):
         super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, kernel_size=k, stride=s, padding=p, bias=False),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),
-        )
+        if norm:
+            self.block = nn.Sequential(
+                nn.Conv2d(in_ch, out_ch, kernel_size=k, stride=s, padding=p, bias=False),
+                nn.BatchNorm2d(out_ch),
+                nn.ReLU(inplace=True),
+            )
+        else:
+            self.block = nn.Sequential(
+                nn.Conv2d(in_ch, out_ch, kernel_size=k, stride=s, padding=p, bias=False),
+                nn.ReLU(inplace=True),
+            )
         self._init_weights()
 
     def _init_weights(self):
@@ -30,13 +36,19 @@ class ConvBNReLU(nn.Module):
 
 
 class DeconvBNReLU(nn.Module):
-    def __init__(self, in_ch, out_ch, k=4, s=2, p=1):
+    def __init__(self, in_ch, out_ch, k=4, s=2, p=1, norm=True):
         super().__init__()
-        self.block = nn.Sequential(
-            nn.ConvTranspose2d(in_ch, out_ch, kernel_size=k, stride=s, padding=p, bias=False),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),
-        )
+        if norm:
+            self.block = nn.Sequential(
+                nn.ConvTranspose2d(in_ch, out_ch, kernel_size=k, stride=s, padding=p, bias=False),
+                nn.BatchNorm2d(out_ch),
+                nn.ReLU(inplace=True),
+            )
+        else:
+            self.block = nn.Sequential(
+                nn.ConvTranspose2d(in_ch, out_ch, kernel_size=k, stride=s, padding=p, bias=False),
+                nn.ReLU(inplace=True),
+            )
         self._init_weights()
 
     def _init_weights(self):
@@ -216,12 +228,13 @@ class Decoder(nn.Module):
       Input:  z (B x z_dim), context dict from Encoder
       Output: x_hat (B x 3 x H x W) cropped to original size
     """
-    def __init__(self, z_dim: int = 512, out_ch: int = 3, base_ch: int = 64, gap_ch: int = 1, out_act: str = "sigmoid"):
+    def __init__(self, z_dim: int = 512, out_ch: int = 3, base_ch: int = 64, gap_ch: int = 1, out_act: str = "sigmoid", norm: bool = False):
         super().__init__()
         c1, c2, c3 = base_ch, base_ch*2, base_ch*4  # 64, 128, 256
         self.gap_ch = gap_ch
         self.z_dim = z_dim
         self.out_act = out_act
+        self.norm = norm
 
         # We don't know Hb, Wb at init; we'll create fc dynamically on first call.
         self.fc = None
@@ -232,12 +245,11 @@ class Decoder(nn.Module):
         # self.up1 = DeconvBNReLU(c3, c3, k=4, s=2, p=1)  # H/8 -> H/4
         # self.conv1 = ConvBNReLU(c3, c3, k=3, s=1, p=1)
 
-        self.up2 = DeconvBNReLU(c3, c2, k=4, s=2, p=1)  # H/4 -> H/2
-        self.conv2 = ConvBNReLU(c2, c2, k=3, s=1, p=1)
+        self.up2 = DeconvBNReLU(c3, c2, k=4, s=2, p=1, norm=norm)  # H/4 -> H/2
+        self.conv2 = ConvBNReLU(c2, c2, k=3, s=1, p=1, norm=norm)
 
-        self.up3 = DeconvBNReLU(c2, c1, k=4, s=2, p=1)  # H/2 -> H
-        self.conv3 = ConvBNReLU(c1, c1, k=3, s=1, p=1)
-
+        self.up3 = DeconvBNReLU(c2, c1, k=4, s=2, p=1, norm=norm)  # H/2 -> H
+        self.conv3 = ConvBNReLU(c1, c1, k=3, s=1, p=1, norm=norm)
         self.out_conv = nn.Conv2d(c1, out_ch, kernel_size=3, stride=1, padding=1)
         nn.init.xavier_uniform_(self.out_conv.weight)
         nn.init.zeros_(self.out_conv.bias)

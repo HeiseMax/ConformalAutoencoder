@@ -31,10 +31,10 @@ def gini(w: torch.Tensor) -> torch.Tensor:
     return s
 
 def gmean(input_x, dim):
-    log_x = torch.log(input_x)
+    log_x = torch.log(torch.clamp(input_x, min=torch.finfo(torch.float32).eps))
     return torch.exp(torch.mean(log_x, dim=dim))
 
-def get_batch_jacobian(func, inputs, chunk_size=64):
+def get_batch_jacobian(func, inputs, chunk_size=64, v_map_chunk_size=32, create_gradients=False):
     params = dict(func.named_parameters())
 
     def fmodel(params, inputs):
@@ -42,9 +42,17 @@ def get_batch_jacobian(func, inputs, chunk_size=64):
 
     jacobians = []
     for i in range(0, inputs.size(0), chunk_size):
-        chunk = inputs[i:i+chunk_size]
-        chunk_jacobians = vmap(jacrev(fmodel, argnums=(1)), in_dims=(None,0))(params, chunk)
-        jacobians.append(chunk_jacobians)
+        if not create_gradients:
+            with torch.no_grad():
+                chunk = inputs[i:i+chunk_size]
+                chunk_jacobians = vmap(jacrev(fmodel, argnums=(1)), in_dims=(None,0), chunk_size=v_map_chunk_size)(params, chunk)
+                jacobians.append(chunk_jacobians)
+                torch.cuda.empty_cache()
+        else:
+            chunk = inputs[i:i+chunk_size]
+            chunk_jacobians = vmap(jacrev(fmodel, argnums=(1)), in_dims=(None,0))(params, chunk)
+            jacobians.append(chunk_jacobians)
+            torch.cuda.empty_cache()
         
     jacobians =  torch.cat(jacobians, dim=0)
     torch.cuda.empty_cache()

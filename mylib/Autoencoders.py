@@ -9,7 +9,9 @@ from torch.autograd.functional import jvp
 from torch.autograd.functional import jacobian
 from tqdm import tqdm
 
-from metrics import isometry_loss, scaled_isometry_loss, conformality_trace_loss as conformality_loss, regularization
+from metrics import isometry_loss, scaled_isometry_loss, conformality_cosine_loss, regularization
+
+from vgg_perceptual_loss import VGGPerceptualLoss
 
 
 class Autoencoder(nn.Module):
@@ -53,7 +55,7 @@ class Autoencoder(nn.Module):
         loss = nn.MSELoss()(x_reconstructed, x)
         return [loss]
     
-    def get_loss(self, metrics):
+    def get_loss(self, metrics, epoch):
         # Combine metrics to compute loss
         return metrics[0]
     
@@ -393,8 +395,10 @@ class ConformalAutoencoder(Autoencoder):
         self.lambda_aug = lambda_aug
         self.reg_in_loss = reg_in_loss
 
-        self.conformality_loss = conformality_loss
+        self.conformality_loss = conformality_cosine_loss
         self.regularization_loss = regularization
+        self.reconstruction_loss = nn.MSELoss()
+        self.perceptual_loss = None
 
         self.metrics_list = {"reconstruction_loss": [], "conformal_loss": [], "regularization_loss": []}
         self.val_metrics_list = {"reconstruction_loss": [], "conformal_loss": [], "regularization_loss": []}
@@ -404,7 +408,10 @@ class ConformalAutoencoder(Autoencoder):
         bs = x.size(0)
         z = self.encode(x)
         x_reconstructed = self.decode(z)
-        reconstruction_loss = nn.MSELoss()(x_reconstructed, x)
+        reconstruction_loss = self.reconstruction_loss(x_reconstructed, x)
+        if self.perceptual_loss is not None:
+            perceptual_loss = self.perceptual_loss(x_reconstructed, x)
+            reconstruction_loss = reconstruction_loss + perceptual_loss # put weight as lambda if needed
 
         if self.lambda_aug is not None:
             z_perm = z[torch.randperm(bs)]

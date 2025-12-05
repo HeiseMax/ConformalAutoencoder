@@ -11,6 +11,7 @@ Metrics:
 - test trace loss with unnormalized vectors
 - Use Riemannian metric (J(z)^TJ(z)) to get geodesics -> interpolation.
 - memory explodes for celebA jacobian calculation (50GB per sample)
+- trace loss requires mean over batch in fraction, would it be useful to have batch of batches to get the mean loss over multiple batches?
 
 
 Further research:
@@ -40,3 +41,8 @@ Analysis of what takes how much time
 torchinfo missing in requirements.txt
 for cluster num workers cant be more than cpu cores
 What c-values does scaled iso take? is it even possible to calc jac?
+change to small celeba (has probably easier to learn cropping)
+
+make reg_in_loss a parameter of the train function
+
+ablation of lambda_aug
