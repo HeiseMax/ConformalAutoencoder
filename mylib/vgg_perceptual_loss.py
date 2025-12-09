@@ -5,10 +5,10 @@ class VGGPerceptualLoss(torch.nn.Module):
     def __init__(self, resize=True):
         super(VGGPerceptualLoss, self).__init__()
         blocks = []
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[:4].eval())
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[4:9].eval())
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[9:16].eval())
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[16:23].eval())
+        blocks.append(torchvision.models.vgg16(weights=torchvision.models.VGG16_Weights.DEFAULT).features[:4].eval())
+        blocks.append(torchvision.models.vgg16(weights=torchvision.models.VGG16_Weights.DEFAULT).features[4:9].eval())
+        blocks.append(torchvision.models.vgg16(weights=torchvision.models.VGG16_Weights.DEFAULT).features[9:16].eval())
+        blocks.append(torchvision.models.vgg16(weights=torchvision.models.VGG16_Weights.DEFAULT).features[16:23].eval())
         for bl in blocks:
             for p in bl.parameters():
                 p.requires_grad = False
@@ -41,4 +41,5 @@ class VGGPerceptualLoss(torch.nn.Module):
                 gram_x = act_x @ act_x.permute(0, 2, 1)
                 gram_y = act_y @ act_y.permute(0, 2, 1)
                 loss += torch.nn.functional.l1_loss(gram_x, gram_y)
+        torch.cuda.empty_cache()
         return loss

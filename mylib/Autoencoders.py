@@ -99,7 +99,7 @@ class Autoencoder(nn.Module):
 
     
     # train loop
-    def train_model(self, train_dataloader, val_dataloader=None, has_label=False, epochs=1000, batch_size=64, learning_rate=0.001, optimizer=None, scheduler=None, optimizer_kwargs={}, scheduler_kwargs={"step_size":100, "gamma":0.1}, log_every=100, val_every=100, verbose=True):        
+    def train_model(self, train_dataloader, val_dataloader=None, has_label=False, epochs=1000, batch_size=64, learning_rate=0.001, optimizer=None, scheduler=None, optimizer_kwargs={}, scheduler_kwargs={"step_size":100, "gamma":0.1}, log_every=100, val_every=100, verbose=True, checkpoint_path=None):        
         # Define optimizer and scheduler
         if optimizer is None:
             optimizer = self.get_default_optimizer(learning_rate, optimizer_kwargs)
@@ -155,6 +155,10 @@ class Autoencoder(nn.Module):
 
             del loss, batch_data, batch_metrics, metrics, metrics_list, loss_list
             torch.cuda.empty_cache()
+
+            # save checkpoint
+            if checkpoint_path is not None and (epoch + 1) % val_every == 0:
+                self.save_checkpoint(filepath=checkpoint_path)
 
             # Validation step
             if val_dataloader is not None and (epoch + 1) % val_every == 0:
