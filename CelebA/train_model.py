@@ -87,8 +87,8 @@ def main():
     conformal_autoencoder.reconstruction_loss = reconstruction_loss
 
     # data loaders
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=bs, shuffle=True, num_workers=4, pin_memory=True)
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=bs, shuffle=False, num_workers=4, pin_memory=True)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=bs, shuffle=True, num_workers=4, persistent_workers=True)
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=bs, shuffle=False, num_workers=4, persistent_workers=True)
 
 
     optimizer, scheduler = conformal_autoencoder.train_model(train_loader,
